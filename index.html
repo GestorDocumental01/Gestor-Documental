@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor Documental</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SweetAlert2 -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <!-- Dexie.js para IndexedDB -->
+    <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
+</head>
+<body class="bg-black text-gray-100 min-h-screen p-6 flex flex-col justify-center items-center">
+
+    <!-- ================= VISTA DE LOGIN ================= -->
+    <div id="vistaLogin" class="w-full max-w-md p-8 bg-zinc-950 border border-gray-800 rounded-xl shadow-2xl">
+        <div class="text-center mb-6">
+            <h1 class="text-2xl font-bold text-green-500 mb-2">Gestor Documental</h1>
+            <p class="text-sm text-gray-400">Inicia sesión para acceder al sistema</p>
+        </div>
+        <form onsubmit="iniciarSesion(event)" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Usuario</label>
+                <input type="text" id="loginUsuario" required
+                    class="w-full bg-black border border-gray-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-green-500"
+                    placeholder="Ej. admin">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-300 mb-1">Contraseña</label>
+                <input type="password" id="loginPassword" required
+                    class="w-full bg-black border border-gray-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-green-500"
+                    placeholder="••••••••">
+            </div>
+            <button type="submit" 
+                class="w-full bg-emerald-900 hover:bg-emerald-800 text-white font-semibold px-4 py-2 rounded-lg shadow transition duration-200 border border-emerald-700">
+                Entrar
+            </button>
+        </form>
+    </div>
+
+    <!-- ================= APLICACIÓN PRINCIPAL (Oculta por defecto) ================= -->
+    <div id="appContainer" class="w-full max-w-5xl mx-auto p-6 bg-black border border-gray-800 rounded-xl shadow-2xl mt-6 hidden">
+        <header class="flex flex-col md:flex-row justify-between items-center mb-6 pb-4 border-b border-gray-800 gap-4">
+            <h1 class="text-2xl font-bold text-green-500 flex items-center gap-2">
+                Gestor Documental 
+                <span id="tituloRuta" class="text-sm font-normal text-gray-400">/ Mis Carpetas</span>
+            </h1>
+            
+            <div class="flex flex-wrap items-center gap-2">
+                <span id="infoUsuarioConectado" class="text-xs text-gray-400 mr-2"></span>
+                <!-- Botón de Usuarios con un ID para ocultarlo si no es admin -->
+                <button id="btnMenuUsuarios" onclick="verificarClaveYGestionarUsuarios()" class="bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition duration-200 border border-emerald-700 hidden">
+                    Usuarios
+                </button>
+                <button onclick="verificarClaveYExportar()" class="bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition duration-200 border border-emerald-700">
+                    Respaldo
+                </button>
+                <button onclick="verificarClaveYRestaurar()" class="bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition duration-200 border border-emerald-700">
+                    Restaurar
+                </button>
+                <button onclick="verificarClaveYBorrarTodo()" class="bg-emerald-900 hover:bg-emerald-800 text-white text-xs font-semibold px-3 py-2 rounded-lg shadow transition duration-200 border border-emerald-700">
+                    Vaciar BD
+                </button>
+                <button onclick="cerrarSesion()" class="bg-red-950 hover:bg-red-900 text-red-200 text-xs font-semibold px-3 py-2 rounded-lg shadow transition duration-200 border border-red-800">
+                    Salir
+                </button>
+                <!-- Input oculto para restaurar JSON -->
+                <input type="file" id="inputRestaurar" accept=".json" onchange="procesarArchivoRestauracion(event)" class="hidden">
+            </div>
+        </header>
+
+        <!-- VISTA 1: GRILLA DE CARPETAS -->
+        <section id="vistaCarpetas" class="space-y-6">
+            <div class="bg-zinc-950 border border-gray-800 p-4 rounded-lg shadow flex flex-col sm:flex-row justify-between items-center gap-4">
+                <h2 class="text-lg font-semibold text-green-400">Carpetas Disponibles</h2>
+                <button onclick="verificarClaveYCrearCarpeta()" class="bg-emerald-900 hover:bg-emerald-800 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow transition duration-200 flex items-center gap-2 border border-emerald-700">
+                    Nueva Carpeta
+                </button>
+            </div>
+
+            <div id="gridCarpetas" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                <!-- Se cargan dinámicamente -->
+            </div>
+        </section>
+
+        <!-- VISTA 2: CONTENIDO DE UNA CARPETA -->
+        <section id="vistaDetalleCarpeta" class="space-y-6 hidden">
+            <div class="flex items-center justify-between bg-zinc-950 border border-gray-800 p-4 rounded-lg shadow">
+                <div class="flex items-center gap-3">
+                    <button onclick="volverACarpetas()" class="bg-emerald-900 hover:bg-emerald-800 text-white px-3 py-1.5 rounded-lg text-sm transition border border-emerald-700">
+                        Volver a Carpetas
+                    </button>
+                    <h2 id="nombreCarpetaActual" class="text-xl font-bold text-green-400">Carpeta</h2>
+                </div>
+                <button onclick="eliminarCarpetaActual()" class="bg-emerald-900 hover:bg-emerald-800 text-white text-xs px-3 py-2 rounded-lg shadow transition border border-emerald-700">
+                    Eliminar Carpeta Actual
+                </button>
+            </div>
+
+            <!-- Formulario para Subir Archivos -->
+            <div class="bg-zinc-950 border border-gray-800 p-4 rounded-lg shadow">
+                <h3 class="text-md font-semibold mb-3 text-green-300">Subir Documentos en esta Carpeta</h3>
+                <form id="docForm" onsubmit="guardarDocumentosEnCarpeta(event)" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Nombre Base o Etiqueta (Opcional)</label>
+                        <input type="text" id="nombreDoc" 
+                            class="w-full bg-black border border-gray-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-green-500"
+                            placeholder="Ej. Cédula Frente y Revés">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-1">Seleccionar Archivos (Puedes subir varios a la vez)</label>
+                        <input type="file" id="archivoInput" multiple required
+                            class="w-full bg-black border border-gray-800 rounded-lg px-3 py-2 text-gray-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-emerald-900 file:text-white hover:file:bg-emerald-800 cursor-pointer">
+                    </div>
+                    <button type="submit" 
+                        class="bg-emerald-900 hover:bg-emerald-800 text-white font-semibold px-4 py-2 rounded-lg shadow transition duration-200 border border-emerald-700">
+                        Guardar Archivos
+                    </button>
+                </form>
+            </div>
+
+            <!-- Listado y Buscador de Archivos -->
+            <div class="bg-zinc-950 border border-gray-800 p-4 rounded-lg shadow">
+                <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-3">
+                    <h3 class="text-md font-semibold text-green-300">Archivos en la Carpeta</h3>
+                    <div class="w-full md:w-72">
+                        <input type="text" id="buscadorInput" oninput="filtrarArchivosActuales()" 
+                            class="w-full bg-black border border-gray-800 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-green-500"
+                            placeholder="🔍 Buscar archivo en esta carpeta...">
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left border-collapse">
+                        <thead>
+                            <tr class="border-b border-gray-800 text-gray-400 text-sm">
+                                <th class="py-2 px-3">ID</th>
+                                <th class="py-2 px-3">Nombre</th>
+                                <th class="py-2 px-3">Archivo Original</th>
+                                <th class="py-2 px-3">Fecha</th>
+                                <th class="py-2 px-3 text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="listaDocumentos" class="divide-y divide-gray-800 text-sm">
+                            <!-- Se cargan dinámicamente -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Script de Lógica -->
+    <script>
+        let carpetaActiva = null; 
+        let usuarioActual = null;
+
+        // Inicializar base de datos con Dexie.js
+        const db = new Dexie('GestorDocumentalCarpetasDB');
+        db.version(1).stores({
+            carpetas: '++id, &nombre',
+            documentos: '++id, carpeta, nombre, archivoData, tipoArchivo, nombreArchivo, fecha',
+            usuarios: '++id, &username, password, rol'
+        });
+
+        document.addEventListener('DOMContentLoaded', async () => {
+            await asegurarDatosPorDefecto();
+            verificarSesionActiva();
+        });
+
+        async function asegurarDatosPorDefecto() {
+            const countUsers = await db.usuarios.count();
+            if (countUsers === 0) {
+                await db.usuarios.add({
+                    username: 'admin',
+                    password: '5782**',
+                    rol: 'admin'
+                });
+            }
+
+            const countCarpetas = await db.carpetas.count();
+            if (countCarpetas === 0) {
+                await db.carpetas.add({ nombre: 'General' });
+            }
+        }
+
+        function verificarSesionActiva() {
+            const usuarioGuardado = sessionStorage.getItem('usuarioGestor');
+            if (usuarioGuardado) {
+                usuarioActual = JSON.parse(usuarioGuardado);
+                mostrarAplicacion();
+            } else {
+                mostrarLogin();
+            }
+        }
+
+        function mostrarLogin() {
+            document.getElementById('vistaLogin').classList.remove('hidden');
+            document.getElementById('appContainer').classList.add('hidden');
+            document.body.classList.add('justify-center', 'items-center');
+        }
+
+        function mostrarAplicacion() {
+            document.getElementById('vistaLogin').classList.add('hidden');
+            document.getElementById('appContainer').classList.remove('hidden');
+            document.body.classList.remove('justify-center', 'items-center');
+            document.getElementById('infoUsuarioConectado').textContent = `👤 ${usuarioActual.username} (${usuarioActual.rol})`;
+            
+            // Mostrar u ocultar el botón de Usuarios según el rol
+            const btnUsuarios = document.getElementById('btnMenuUsuarios');
+            if (usuarioActual.rol === 'admin') {
+                btnUsuarios.classList.remove('hidden');
+            } else {
+                btnUsuarios.classList.add('hidden');
+            }
+
+            cargarCarpetas();
+        }
+
+        async function iniciarSesion(e) {
+            e.preventDefault();
+            const user = document.getElementById('loginUsuario').value.trim();
+            const pass = document.getElementById('loginPassword').value;
+
+            try {
+                const encontrado = await db.usuarios.where('username').equals(user).first();
+                if (encontrado && encontrado.password === pass) {
+                    usuarioActual = { username: encontrado.username, rol: encontrado.rol };
+                    sessionStorage.setItem('usuarioGestor', JSON.stringify(usuarioActual));
+                    document.getElementById('loginUsuario').value = '';
+                    document.getElementById('loginPassword').value = '';
+                    mostrarAplicacion();
+                } else {
+                    Swal.fire({
+                        title: 'Error',
+                        text: 'Usuario o contraseña incorrectos.',
+                        icon: 'error',
+                        background: '#09090b',
+                        color: '#f3f4f6',
+                        confirmButtonColor: '#065f46'
+                    });
+                }
+            } catch (err) {
+                console.error(err);
+                Swal.fire({
+                    title: 'Error',
+                    text: 'Ocurrió un error al iniciar sesión.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            }
+        }
+
+        function cerrarSesion() {
+            sessionStorage.removeItem('usuarioGestor');
+            usuarioActual = null;
+            mostrarLogin();
+        }
+
+        async function obtenerPasswordMaestra() {
+            const { value: passwordIngresada } = await Swal.fire({
+                title: 'Seguridad requerida',
+                text: 'Introduce tu contraseña de administrador:',
+                input: 'password',
+                inputPlaceholder: 'Contraseña',
+                showCancelButton: true,
+                confirmButtonText: 'Verificar',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#065f46',
+                background: '#09090b',
+                color: '#f3f4f6'
+            });
+            return passwordIngresada;
+        }
+
+        async function validarClaveAdmin() {
+            const passwordIngresada = await obtenerPasswordMaestra();
+            if (passwordIngresada === undefined) return false;
+
+            const adminUser = await db.usuarios.where('username').equals(usuarioActual.username).first();
+            if (adminUser && adminUser.password === passwordIngresada && adminUser.rol === 'admin') {
+                return true;
+            } else {
+                Swal.fire({
+                    title: 'Acceso Denegado',
+                    text: 'Se requiere contraseña de administrador.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+                return false;
+            }
+        }
+
+        // ================= GESTIÓN DE USUARIOS =================
+
+        async function verificarClaveYGestionarUsuarios() {
+            if (usuarioActual.rol !== 'admin') {
+                Swal.fire({
+                    title: 'Acceso Denegado',
+                    text: 'Solo el administrador puede gestionar usuarios.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+                return;
+            }
+            if (!await validarClaveAdmin()) return;
+            abrirPanelUsuarios();
+        }
+
+        async function abrirPanelUsuarios() {
+            try {
+                const usuarios = await db.usuarios.toArray();
+                let htmlLista = `
+                    <div style="text-align: left; max-height: 250px; overflow-y: auto;" class="mb-4">
+                        <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                            <thead>
+                                <tr style="border-bottom: 1px solid #27272a; color: #9ca3af;">
+                                    <th style="padding: 8px;">Usuario</th>
+                                    <th style="padding: 8px;">Rol</th>
+                                    <th style="padding: 8px; text-align: center;">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                `;
+
+                usuarios.forEach(u => {
+                    htmlLista += `
+                        <tr style="border-bottom: 1px solid #18181b;">
+                            <td style="padding: 8px; color: #fff;">${u.username}</td>
+                            <td style="padding: 8px; color: #10b981;">${u.rol}</td>
+                            <td style="padding: 8px; text-align: center;">
+                                ${u.username !== 'admin' ? `<button onclick="eliminarUsuario(${u.id})" style="background: #7f1d1d; color: #fca5a5; border: none; padding: 4px 10px; border-radius: 4px; cursor: pointer;">Eliminar</button>` : '<span style="color: #52525b;">Protegido</span>'}
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                htmlLista += `</tbody></table></div>`;
+
+                await Swal.fire({
+                    title: '<span style="color: #fff;">Gestión de Usuarios</span>',
+                    html: htmlLista + `
+                        <hr style="border-color: #27272a; margin: 15px 0;">
+                        <button id="btnNuevoUsr" style="background-color: #065f46; color: #fff; font-size: 14px; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; font-weight: 600;">+ Crear Nuevo Usuario</button>
+                    `,
+                    showConfirmButton: false,
+                    showCloseButton: true,
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    didOpen: () => {
+                        document.getElementById('btnNuevoUsr').onclick = () => {
+                            Swal.close();
+                            crearNuevoUsuarioModal();
+                        };
+                    }
+                });
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function crearNuevoUsuarioModal() {
+            const { value: formValues } = await Swal.fire({
+                title: '<span style="color: #fff;">Nuevo Usuario</span>',
+                html: `
+                    <input id="swal-input-user" class="swal2-input" placeholder="Nombre de usuario" style="background: #000; color: #fff; border-color: #27272a; font-size: 14px; width: 80%;">
+                    <input id="swal-input-pass" type="password" class="swal2-input" placeholder="Contraseña" style="background: #000; color: #fff; border-color: #27272a; font-size: 14px; width: 80%;">
+                    <select id="swal-input-rol" class="swal2-input" style="background: #000; color: #fff; border-color: #27272a; font-size: 14px; width: 80%;">
+                        <option value="invitado">Invitado (Usuario Estándar)</option>
+                        <option value="admin">Administrador</option>
+                    </select>
+                `,
+                focusConfirm: false,
+                showCancelButton: true,
+                confirmButtonText: 'Guardar',
+                confirmButtonColor: '#065f46',
+                cancelButtonText: 'Cancelar',
+                background: '#09090b',
+                color: '#f3f4f6',
+                preConfirm: () => {
+                    const u = document.getElementById('swal-input-user').value.trim();
+                    const p = document.getElementById('swal-input-pass').value;
+                    const r = document.getElementById('swal-input-rol').value;
+                    if (!u || !p) {
+                        Swal.showValidationMessage('Debes rellenar usuario y contraseña');
+                    }
+                    return { username: u, password: p, rol: r };
+                }
+            });
+
+            if (formValues) {
+                try {
+                    const existe = await db.usuarios.where('username').equals(formValues.username).first();
+                    if (existe) {
+                        Swal.fire({
+                            title: 'Error',
+                            text: 'Ese nombre de usuario ya existe.',
+                            icon: 'error',
+                            background: '#09090b',
+                            color: '#f3f4f6',
+                            confirmButtonColor: '#065f46'
+                        });
+                        return;
+                    }
+                    await db.usuarios.add(formValues);
+                    Swal.fire({
+                        icon: 'success',
+                        title: '¡Usuario creado!',
+                        timer: 1500,
+                        showConfirmButton: false,
+                        background: '#09090b',
+                        color: '#f3f4f6'
+                    });
+                    verificarClaveYGestionarUsuarios(); 
+                } catch (err) {
+                    console.error(err);
+                    Swal.fire({
+                        title: 'Error',
+                        text: 'No se pudo crear el usuario.',
+                        icon: 'error',
+                        background: '#09090b',
+                        color: '#f3f4f6',
+                        confirmButtonColor: '#065f46'
+                    });
+                }
+            }
+        }
+
+        async function eliminarUsuario(id) {
+            const seguro = await Swal.fire({
+                title: '¿Eliminar usuario?',
+                text: 'Esta persona ya no podrá iniciar sesión.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, eliminar',
+                confirmButtonColor: '#7f1d1d',
+                background: '#09090b',
+                color: '#f3f4f6'
+            });
+
+            if (seguro.isConfirmed) {
+                await db.usuarios.delete(id);
+                Swal.fire({
+                    title: 'Eliminado',
+                    icon: 'success',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+                verificarClaveYGestionarUsuarios();
+            }
+        }
+
+        // ================= GESTIÓN DE CARPETAS =================
+
+        async function cargarCarpetas() {
+            carpetaActiva = null;
+            document.getElementById('vistaCarpetas').classList.remove('hidden');
+            document.getElementById('vistaDetalleCarpeta').classList.add('hidden');
+            document.getElementById('tituloRuta').textContent = '/ Mis Carpetas';
+
+            try {
+                const carpetas = await db.carpetas.toArray();
+                const grid = document.getElementById('gridCarpetas');
+                grid.innerHTML = '';
+
+                if (carpetas.length === 0) {
+                    grid.innerHTML = `<p class="text-gray-400 col-span-full text-center py-4">No hay carpetas creadas.</p>`;
+                    return;
+                }
+
+                for (let c of carpetas) {
+                    const totalArchivos = await db.documentos.where('carpeta').equals(c.nombre).count();
+
+                    const card = document.createElement('div');
+                    card.className = "bg-zinc-950 border border-gray-800 hover:border-green-600 p-5 rounded-xl shadow cursor-pointer transition flex flex-col justify-between";
+                    card.onclick = () => abrirCarpeta(c.nombre);
+                    card.innerHTML = `
+                        <div>
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="text-3xl">📁</span>
+                                <span class="bg-emerald-950 text-green-300 text-xs px-2 py-0.5 rounded-full font-medium border border-emerald-800">${totalArchivos} archivos</span>
+                            </div>
+                            <h3 class="text-lg font-bold text-white truncate" title="${c.nombre}">${c.nombre}</h3>
+                        </div>
+                        <div class="mt-4 text-xs text-green-400 font-semibold flex items-center gap-1">
+                            Abrir carpeta ➔
+                        </div>
+                    `;
+                    grid.appendChild(card);
+                }
+            } catch (err) {
+                console.error("Error al cargar carpetas:", err);
+            }
+        }
+
+        async function verificarClaveYCrearCarpeta() {
+            if (!await validarClaveAdmin()) return;
+            crearNuevaCarpetaPrompt();
+        }
+
+        async function crearNuevaCarpetaPrompt() {
+            const { value: nombreCarpeta } = await Swal.fire({
+                title: 'Crear Nueva Carpeta',
+                text: 'Introduce el nombre para la nueva carpeta:',
+                input: 'text',
+                inputPlaceholder: 'Ej. Contratos 2026...',
+                showCancelButton: true,
+                confirmButtonText: 'Crear',
+                cancelButtonText: 'Cancelar',
+                confirmButtonColor: '#065f46',
+                background: '#09090b',
+                color: '#f3f4f6'
+            });
+
+            if (!nombreCarpeta || !nombreCarpeta.trim()) return;
+            const nombreLimpio = nombreCarpeta.trim();
+
+            try {
+                const existe = await db.carpetas.where('nombre').equals(nombreLimpio).first();
+                if (existe) {
+                    Swal.fire({
+                        title: 'Aviso',
+                        text: 'Ya existe una carpeta con ese nombre.',
+                        icon: 'info',
+                        background: '#09090b',
+                        color: '#f3f4f6',
+                        confirmButtonColor: '#065f46'
+                    });
+                    return;
+                }
+
+                await db.carpetas.add({ nombre: nombreLimpio });
+                Swal.fire({
+                    icon: 'success',
+                    title: '¡Carpeta creada!',
+                    timer: 1500,
+                    showConfirmButton: false,
+                    background: '#09090b',
+                    color: '#f3f4f6'
+                });
+                cargarCarpetas();
+            } catch (err) {
+                console.error(err);
+                Swal.fire({
+                    title: 'Error',
+                    text: 'No se pudo crear la carpeta.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            }
+        }
+
+        async function abrirCarpeta(nombreCarpeta) {
+            carpetaActiva = nombreCarpeta;
+            document.getElementById('vistaCarpetas').classList.add('hidden');
+            document.getElementById('vistaDetalleCarpeta').classList.remove('hidden');
+            document.getElementById('nombreCarpetaActual').textContent = `📁 ${nombreCarpeta}`;
+            document.getElementById('tituloRuta').textContent = `/ ${nombreCarpeta}`;
+            document.getElementById('buscadorInput').value = '';
+            document.getElementById('docForm').reset();
+            
+            await cargarDocumentosCarpeta();
+        }
+
+        async function volverACarpetas() {
+            cargarCarpetas();
+        }
+
+        async function eliminarCarpetaActual() {
+            if (!await validarClaveAdmin()) return;
+
+            try {
+                await db.documentos.where('carpeta').equals(carpetaActiva).delete();
+                await db.carpetas.where('nombre').equals(carpetaActiva).delete();
+
+                Swal.fire({
+                    title: '¡Eliminada!',
+                    text: 'La carpeta y sus archivos han sido borrados.',
+                    icon: 'success',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+                cargarCarpetas();
+            } catch (err) {
+                console.error(err);
+                Swal.fire({
+                    title: 'Error',
+                    text: 'No se pudo eliminar la carpeta.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            }
+        }
+
+        // ================= GESTIÓN DE DOCUMENTOS =================
+
+        async function guardarDocumentosEnCarpeta(e) {
+            e.preventDefault();
+            const etiquetaBase = document.getElementById('nombreDoc').value.trim();
+            const inputArchivo = document.getElementById('archivoInput');
+            const archivos = inputArchivo.files;
+
+            if (archivos.length === 0 || !carpetaActiva) return;
+
+            Swal.fire({
+                title: 'Subiendo archivos...',
+                text: `Guardando en "${carpetaActiva}". Por favor espere.`,
+                allowOutsideClick: false,
+                background: '#09090b',
+                color: '#f3f4f6',
+                didOpen: () => { Swal.showLoading(); }
+            });
+
+            try {
+                let guardados = 0;
+                for (let i = 0; i < archivos.length; i++) {
+                    const archivo = archivos[i];
+                    if (archivo.name === 'Thumbs.db' || archivo.name === '.DS_Store') continue;
+
+                    const nombreArchivo = archivo.name;
+                    const nombre = etiquetaBase ? `${etiquetaBase} - ${archivo.name}` : archivo.name;
+                    const tipoArchivo = archivo.type || "application/pdf";
+                    const fecha = new Date().toLocaleDateString() + ' ' + new Date().toLocaleTimeString();
+
+                    await new Promise((resolve) => {
+                        const lector = new FileReader();
+                        lector.onload = async function(event) {
+                            try {
+                                await db.documentos.add({
+                                    carpeta: carpetaActiva,
+                                    nombre,
+                                    archivoData: event.target.result,
+                                    tipoArchivo,
+                                    nombreArchivo,
+                                    fecha
+                                });
+                                guardados++;
+                            } catch (err) {
+                                console.error(err);
+                            }
+                            resolve();
+                        };
+                        lector.onerror = () => resolve();
+                        lector.readAsDataURL(archivo);
+                    });
+                }
+
+                Swal.fire({
+                    icon: 'success',
+                    title: '¡Archivos guardados!',
+                    text: `Se subieron ${guardados} archivos correctamente.`,
+                    timer: 1500,
+                    showConfirmButton: false,
+                    background: '#09090b',
+                    color: '#f3f4f6'
+                });
+
+                document.getElementById('docForm').reset();
+                await cargarDocumentosCarpeta();
+            } catch (err) {
+                console.error(err);
+                Swal.fire({
+                    title: 'Error',
+                    text: 'Ocurrió un problema al subir los archivos.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            }
+        }
+
+        async function cargarDocumentosCarpeta() {
+            try {
+                const docs = await db.documentos.where('carpeta').equals(carpetaActiva).toArray();
+                renderizarTabla(docs);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function filtrarArchivosActuales() {
+            const texto = document.getElementById('buscadorInput').value.toLowerCase();
+            try {
+                const docs = await db.documentos.where('carpeta').equals(carpetaActiva).toArray();
+                const filtrados = docs.filter(d => 
+                    d.nombre.toLowerCase().includes(texto) || 
+                    d.nombreArchivo.toLowerCase().includes(texto)
+                );
+                renderizarTabla(filtrados);
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        function renderizarTabla(docs) {
+            const tbody = document.getElementById('listaDocumentos');
+            tbody.innerHTML = '';
+
+            if (docs.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="text-center py-4 text-gray-400">No hay archivos en esta carpeta.</td></tr>`;
+                return;
+            }
+
+            docs.forEach(doc => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-zinc-900 transition";
+                tr.innerHTML = `
+                    <td class="py-2 px-3 text-gray-400">#${doc.id}</td>
+                    <td class="py-2 px-3 font-medium text-white">${doc.nombre}</td>
+                    <td class="py-2 px-3 text-gray-300 truncate max-w-xs" title="${doc.nombreArchivo}">${doc.nombreArchivo}</td>
+                    <td class="py-2 px-3 text-gray-300">${doc.fecha}</td>
+                    <td class="py-2 px-3 text-center space-x-1">
+                        <button onclick="verDocumento(${doc.id})" class="bg-emerald-900 hover:bg-emerald-800 text-white px-2.5 py-1 rounded text-xs border border-emerald-700">Abrir</button>
+                        <button onclick="imprimirDocumento(${doc.id})" class="bg-emerald-900 hover:bg-emerald-800 text-white px-2.5 py-1 rounded text-xs border border-emerald-700">🖨️ Imprimir</button>
+                        <button onclick="eliminarDocumento(${doc.id})" class="bg-emerald-900 hover:bg-emerald-800 text-white px-2.5 py-1 rounded text-xs border border-emerald-700">Eliminar</button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function verDocumento(id) {
+            const doc = await db.documentos.get(id);
+            if (doc) {
+                const enlace = document.createElement('a');
+                enlace.href = doc.archivoData;
+                enlace.download = doc.nombreArchivo;
+                document.body.appendChild(enlace);
+                enlace.click();
+                document.body.removeChild(enlace);
+            }
+        }
+
+        async function imprimirDocumento(id) {
+            const doc = await db.documentos.get(id);
+            if (!doc) return;
+
+            const ventanaImpresion = window.open('', '_blank');
+            if (!ventanaImpresion) {
+                Swal.fire({
+                    title: 'Atención',
+                    text: 'Tu navegador bloqueó la ventana emergente.',
+                    icon: 'warning',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+                return;
+            }
+
+            let contenidoHtml = doc.tipoArchivo.includes('image') 
+                ? `<div class="contenedor"><img src="${doc.archivoData}" /></div>` 
+                : `<iframe src="${doc.archivoData}"></iframe>`;
+
+            ventanaImpresion.document.write(`
+                <!DOCTYPE html>
+                <html lang="es">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>Imprimir - ${doc.nombre}</title>
+                    <style>
+                        html, body { margin: 0; padding: 0; width: 100%; height: 100%; background: #fff; overflow: hidden; }
+                        .contenedor { display: flex; justify-content: center; align-items: center; width: 100vw; height: 100vh; }
+                        img { max-width: 100%; max-height: 100%; object-fit: contain; }
+                        iframe { width: 100vw; height: 100vh; border: none; }
+                        @media print { body { background: transparent; } }
+                    </style>
+                </head>
+                <body>
+                    ${contenidoHtml}
+                    <script>
+                        setTimeout(() => { window.print(); }, 800);
+                    <\/script>
+                </body>
+                </html>
+            `);
+            ventanaImpresion.document.close();
+        }
+
+        async function eliminarDocumento(id) {
+            if (!await validarClaveAdmin()) return;
+            await db.documentos.delete(id);
+            await cargarDocumentosCarpeta();
+            Swal.fire({
+                title: '¡Eliminado!',
+                text: 'El documento ha sido borrado.',
+                icon: 'success',
+                background: '#09090b',
+                color: '#f3f4f6',
+                confirmButtonColor: '#065f46'
+            });
+        }
+
+        // ================= RESPALDO Y RESTAURACIÓN =================
+
+        async function verificarClaveYExportar() {
+            if (!await validarClaveAdmin()) return;
+            try {
+                const carpetas = await db.carpetas.toArray();
+                const documentos = await db.documentos.toArray();
+                const respaldoCompleto = { carpetas, documentos };
+
+                const blob = new Blob([JSON.stringify(respaldoCompleto, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const enlace = document.createElement('a');
+                enlace.href = url;
+                enlace.download = `respaldo_completo_${new Date().toISOString().slice(0, 10)}.json`;
+                document.body.appendChild(enlace);
+                enlace.click();
+                document.body.removeChild(enlace);
+                URL.revokeObjectURL(url);
+
+                Swal.fire({
+                    title: '¡Éxito!',
+                    text: 'Respaldo descargado correctamente.',
+                    icon: 'success',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            } catch (err) {
+                console.error(err);
+                Swal.fire({
+                    title: 'Error',
+                    text: 'No se pudo generar el respaldo.',
+                    icon: 'error',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            }
+        }
+
+        async function verificarClaveYRestaurar() {
+            if (!await validarClaveAdmin()) return;
+            document.getElementById('inputRestaurar').click();
+        }
+
+        async function procesarArchivoRestauracion(e) {
+            const archivo = e.target.files[0];
+            if (!archivo) return;
+
+            const lector = new FileReader();
+            lector.onload = async function(event) {
+                try {
+                    const datos = JSON.parse(event.target.result);
+                    
+                    const confirmacion = await Swal.fire({
+                        title: '¿Restaurar respaldo?',
+                        text: 'Esto fusionará las carpetas y documentos del respaldo con los actuales.',
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonText: 'Sí, restaurar',
+                        confirmButtonColor: '#065f46',
+                        background: '#09090b',
+                        color: '#f3f4f6'
+                    });
+
+                    if (confirmacion.isConfirmed) {
+                        if (datos.carpetas && Array.isArray(datos.carpetas)) {
+                            const cLimpias = datos.carpetas.map(({id, ...resto}) => resto);
+                            await db.carpetas.bulkPut(cLimpias);
+                        }
+                        if (datos.documentos && Array.isArray(datos.documentos)) {
+                            const dLimpios = datos.documentos.map(({id, ...resto}) => resto);
+                            await db.documentos.bulkAdd(dLimpios);
+                        }
+                        cargarCarpetas();
+                        Swal.fire({
+                            title: '¡Restaurado!',
+                            text: 'Los datos se recuperaron con éxito.',
+                            icon: 'success',
+                            background: '#09090b',
+                            color: '#f3f4f6',
+                            confirmButtonColor: '#065f46'
+                        });
+                    }
+                } catch (err) {
+                    console.error(err);
+                    Swal.fire({
+                        title: 'Error',
+                        text: 'El archivo no es un respaldo válido.',
+                        icon: 'error',
+                        background: '#09090b',
+                        color: '#f3f4f6',
+                        confirmButtonColor: '#065f46'
+                    });
+                } finally {
+                    e.target.value = '';
+                }
+            };
+            lector.readAsText(archivo);
+        }
+
+        async function verificarClaveYBorrarTodo() {
+            if (!await validarClaveAdmin()) return;
+
+            const seguro = await Swal.fire({
+                title: '¿Estás 100% seguro?',
+                text: 'Esta acción eliminará todas las carpetas y archivos permanentemente.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Sí, borrar todo',
+                confirmButtonColor: '#065f46',
+                background: '#09090b',
+                color: '#f3f4f6'
+            });
+
+            if (seguro.isConfirmed) {
+                await db.documentos.clear();
+                await db.carpetas.clear();
+                await asegurarDatosPorDefecto();
+                cargarCarpetas();
+                Swal.fire({
+                    title: 'Base de datos limpia',
+                    icon: 'success',
+                    background: '#09090b',
+                    color: '#f3f4f6',
+                    confirmButtonColor: '#065f46'
+                });
+            }
+        }
+    </script>
+</body>
+</html>
