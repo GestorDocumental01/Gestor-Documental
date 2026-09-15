@@ -1,7 +1,0 @@
-{
-  "dependencies": {
-    "express": "^5.2.1",
-    "googleapis": "^180.0.0",
-    "multer": "^2.4.0"
-  }
-}
